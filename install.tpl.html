@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>安装 · 网页答题助手</title>
+<style>
+  body{margin:0;padding:40px 20px;background:#f7f8fa;font:15px/1.7 system-ui,-apple-system,"Segoe UI",sans-serif;color:#111}
+  .wrap{max-width:660px;margin:0 auto;background:#fff;border:1px solid #e6e8eb;border-radius:14px;padding:28px 30px;box-shadow:0 8px 30px rgba(0,0,0,.06)}
+  h1{font-size:20px;margin:0 0 6px}
+  h2{font-size:14px;margin:26px 0 9px;display:flex;align-items:center;gap:7px}
+  h2 span{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;border-radius:50%;background:#111;color:#fff;font-size:11px}
+  p.sub{margin:0 0 4px;color:#6b7280;font-size:13px}
+  .form{display:flex;flex-direction:column;gap:8px}
+  .form label{display:flex;align-items:center;gap:10px;font-size:13px;color:#4b5563}
+  .form label>span{flex:none;width:70px;text-align:right;color:#9aa3af;font-size:12.5px}
+  .form input[type=text],.form input[type=password]{flex:1;padding:7px 9px;border:1px solid #d8dde3;border-radius:7px;font:13px/1.5 inherit}
+  .form input:focus{outline:2px solid #c7d2fe;border-color:#a5b4fc}
+  .chk{align-items:flex-start!important;margin-top:2px;padding-left:80px}
+  .chk span{width:auto!important;text-align:left!important;color:#4b5563!important;font-size:12.5px}
+  .chk input{margin-top:4px}
+  a.bm{display:inline-block;margin:12px 0 10px;padding:10px 20px;background:#111;color:#fff;border-radius:9px;text-decoration:none;font-weight:600;font-size:14px}
+  a.bm:active{opacity:.7}
+  .row{display:flex;align-items:center;gap:10px}
+  button{padding:7px 14px;border:1px solid #d1d5db;background:#fff;border-radius:7px;font:inherit;font-size:13px;cursor:pointer}
+  button:hover{background:#f3f4f6}
+  .msg{font-size:12px;color:#15803d}
+  textarea{width:100%;height:70px;box-sizing:border-box;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;border:1px solid #e0e2e6;border-radius:8px;padding:8px;margin-top:10px;resize:vertical;color:#6b7280}
+  code{background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  ol{margin:0;padding-left:20px;font-size:13.5px}
+  li{margin:5px 0}
+  .warn{margin-top:24px;padding:12px 14px;background:#fffaf0;border:1px solid #f4e1b8;border-radius:10px;font-size:12.5px;color:#7a5b11;line-height:1.65}
+  .warn b{color:#92400e}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>网页答题助手</h1>
+  <p class="sub">点一下书签就出答案。不装扩展、不起服务、不打包。书签代码长度 {{LENGTH}} 字符。</p>
+
+  <h2><span>1</span>填一次配置</h2>
+  <p class="sub">填好后写进书签里，之后打开任何网站都不用再填。</p>
+  <div class="form">
+    <label><span>接口地址</span><input id="f-base" type="text" value="https://api.deepseek.com/v1"></label>
+    <label><span>模型</span><input id="f-model" type="text" value="deepseek-chat"></label>
+    <label><span>API Key</span><input id="f-key" type="password" placeholder="sk-..."></label>
+    <label class="chk"><input id="f-embed" type="checkbox" checked><span>把 API Key 一并写进书签（不勾选则每个网站首次使用要手动填一次）</span></label>
+  </div>
+
+  <h2><span>2</span>拖到书签栏</h2>
+  <p class="sub">按 <code>Ctrl+Shift+B</code>（Mac <code>⌘+Shift+B</code>）显示书签栏，把下面按钮拖上去。</p>
+  <a class="bm" id="bm" href="{{BOOKMARKLET}}">答题助手</a>
+  <div class="row"><button id="cp">复制书签代码</button><span class="msg" id="msg"></span></div>
+  <textarea id="src" readonly>{{BOOKMARKLET}}</textarea>
+
+  <h2><span>3</span>使用</h2>
+  <ol>
+    <li>打开题库页面，点书签栏里的「答题助手」，答案自动出现在右上角。</li>
+    <li>再点一次可收起面板；标题栏可拖动，位置会被记住。</li>
+    <li>把书签拖到书签栏最左边，刷新后按 <code>Alt+Shift+B</code> 再 <code>Enter</code>，可用键盘触发。</li>
+  </ol>
+
+  <div class="warn">
+    <b>关于把 Key 写进书签：</b>书签是明文保存的。如果浏览器开了账号同步，书签会同步到云端；共用电脑时别人也看得到。好处是目标网站的页面脚本读不到它（比存网站本地存储更安全）。<br>
+    <b>想更新脚本：</b>脚本代码有改动时，必须删掉旧书签重新拖一次，书签里存的是代码副本。
+  </div>
+</div>
+<script>
+(function () {
+  var bm = document.getElementById('bm');
+  var ta = document.getElementById('src');
+  var msg = document.getElementById('msg');
+  var base = bm.getAttribute('href');
+  var LS = '__qab_install__';
+
+  function v(id) { return document.getElementById(id).value.trim(); }
+  function enc(o) { return encodeURIComponent(JSON.stringify(o)).replace(/'/g, '%27'); }
+
+  function build() {
+    var cfg = { base: v('f-base') || 'https://api.deepseek.com/v1', model: v('f-model') || 'deepseek-chat' };
+    var key = v('f-key');
+    if (document.getElementById('f-embed').checked && key) cfg.key = key;
+    var inject = 'JSON.parse(decodeURIComponent(\'' + enc(cfg) + '\'))';
+    var url = base.replace(/__QAB_EMBED__/g, function () { return encodeURIComponent(inject); });
+    bm.setAttribute('href', url);
+    ta.value = url;
+    msg.textContent = key ? '' : '未填 Key：装上后每站首次点击仍需填写';
+    try {
+      localStorage.setItem(LS, JSON.stringify({
+        b: v('f-base'), m: v('f-model'), k: key,
+        e: document.getElementById('f-embed').checked
+      }));
+    } catch (e) {}
+  }
+
+  try {
+    var s = JSON.parse(localStorage.getItem(LS) || 'null');
+    if (s) {
+      if (s.b) document.getElementById('f-base').value = s.b;
+      if (s.m) document.getElementById('f-model').value = s.m;
+      if (s.k) document.getElementById('f-key').value = s.k;
+      document.getElementById('f-embed').checked = s.e !== false;
+    }
+  } catch (e) {}
+
+  ['f-base', 'f-model', 'f-key', 'f-embed'].forEach(function (id) {
+    var el = document.getElementById(id);
+    el.addEventListener('input', build);
+    el.addEventListener('change', build);
+  });
+
+  document.getElementById('cp').addEventListener('click', function () {
+    build();
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    if (ok) { msg.textContent = '已复制'; return; }
+    if (navigator.clipboard) {
+      var self = this;
+      navigator.clipboard.writeText(ta.value).then(function () { msg.textContent = '已复制'; });
+    }
+  });
+
+  build();
+})();
+</script>
+</body>
+</html>

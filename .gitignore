@@ -1,0 +1,8 @@
+node_modules/
+.codeartsdoer/
+*.log
+.DS_Store
+Thumbs.db
+# 仅本地开发使用，不随仓库发布
+test/
+preview*.html
