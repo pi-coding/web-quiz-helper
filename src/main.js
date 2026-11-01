@@ -6,6 +6,7 @@
   var CK = '__qab_cache__';
   var PK = '__qab_pos__';
   var SELKEY = '__qab_sel__';
+  var VER = 6;
   var DEFAULTS = { base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', key: '' };
   var TYPES = { single: '单选', multi: '多选', judge: '判断', fill: '填空', short: '简答', code: '编程' };
   var EMBED = (typeof __QAB_EMBED__ === 'undefined') ? null : __QAB_EMBED__;
@@ -387,7 +388,9 @@
   }
 
   function buildPrompt(q) {
-    var label = { single: '单选题', multi: '多选题', judge: '判断题', fill: '填空题', short: '简答题', code: '编程题' }[q.type] || '题目';
+    var label = (q.type === 'single' || q.type === 'multi')
+      ? '选择题（单选或多选，按题意判断）'
+      : ({ judge: '判断题', fill: '填空题', short: '简答题', code: '编程题' }[q.type] || '题目');
     var body = q.stem + (q.options.length ? '\n' + q.options.map(function (o) { return o.k + '. ' + o.v; }).join('\n') : '');
     var head = '你是答题助手。题型：' + label + '\n题目：\n' + body + '\n';
 
@@ -421,13 +424,14 @@
     }
 
     return head + '\n要求：\n' +
-      '1. 先在内部逐步推理，正文不要输出推理过程。\n' +
-      '2. 严格按以下格式输出，不要任何前后缀：\n' +
+      '1. 先判断本题是单选还是多选：题干出现“多选/不定项/选出所有/全部/至少两项”，或选项内容明显需要多个答案时，按多选作答。\n' +
+      '2. 先在内部逐步推理，正文不要输出推理过程。\n' +
+      '3. 严格按以下格式输出，不要任何前后缀：\n' +
       '【答案】B\n' +
       '【解析】不超过120字，说明为什么选它、为什么排除其他。\n' +
       '【置信度】高/中/低\n' +
-      '3. 信息不全或不确定时，答案写“不确定”，置信度写“低”。\n' +
-      '4. 多选题必须选出全部正确项，答案写成 ABC（字母升序，无分隔符）；单选题只给一个字母。';
+      '4. 多选必须给全所有正确项，不能漏项，写成 ABD（字母升序，无分隔符）；单选只给一个字母。\n' +
+      '5. 信息不全或不确定时，答案写“不确定”，置信度写“低”。';
   }
 
   function splitAns(s) {
@@ -437,17 +441,18 @@
     return { a: a ? a[1].trim() : '', e: e ? e[1].trim() : '', c: c ? c[1].trim() : '' };
   }
 
-  function answerLetters(a) {
-    var s = String(a || '').toUpperCase();
+function answerLetters(a) {
+    var s = String(a || '').toUpperCase().trim();
     var head = s.match(/^[A-H](?:\s*[、,，.．·和及与]?\s*[A-H])*/);
-    if (!head) return [];
-    var letters = head[0].match(/[A-H]/g) || [];
+    var letters = head ? (head[0].match(/[A-H]/g) || []) : [];
+    if (!letters.length && s.length <= 24) letters = s.match(/[A-H]/g) || [];
     var seen = {}, out = [];
     for (var i = 0; i < letters.length; i++) {
       if (!seen[letters[i]]) { seen[letters[i]] = 1; out.push(letters[i]); }
     }
     return out;
   }
+
 
   function extractCode(a) {
     var m = /```[a-zA-Z0-9+#._-]*\n?([\s\S]*?)```/.exec(a);
@@ -481,7 +486,9 @@
     curRaw = raw;
     var s = splitAns(raw);
     var isCode = q && q.type === 'code';
-    var letters = (q && q.options.length) ? answerLetters(s.a) : [];
+    var letters = (q && q.options.length) ? answerLetters(s.a).filter(function (k) {
+      return q.options.some(function (o) { return o.k === k; });
+    }) : [];
 
     elChip.textContent = q && TYPES[q.type] ? TYPES[q.type] : '';
     elQ.textContent = q ? (q.stem.length > 260 ? q.stem.slice(0, 260) + '…' : q.stem) : '';
@@ -503,7 +510,7 @@
         if (letters.length) {
           elAns.textContent = letters.join('');
           elAns.classList.remove('txt');
-          if (q && q.type === 'single' && letters.length > 1) elChip.textContent = '多选';
+          if (letters.length > 1) elChip.textContent = '多选';
         } else {
           elAns.textContent = s.a;
           elAns.classList.add('txt');
@@ -576,14 +583,14 @@
 
   function saveCache(q, raw) {
     try {
-      localStorage.setItem(CK, JSON.stringify({ u: location.href, h: stemKey(q), q: q, a: raw, t: Date.now() }));
+      localStorage.setItem(CK, JSON.stringify({ v: VER, u: location.href, h: stemKey(q), q: q, a: raw, t: Date.now() }));
     } catch (e) {}
   }
 
   function readCache() {
     try {
       var c = JSON.parse(localStorage.getItem(CK) || 'null');
-      if (c && c.u === location.href && c.q) return c;
+      if (c && c.v === VER && c.u === location.href && c.q) return c;
     } catch (e) {}
     return null;
   }
