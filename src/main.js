@@ -707,7 +707,9 @@ function answerLetters(a) {
       var full = await ask(cfg, buildPrompt(q), maxTokens);
       paint(q, full);
       saveCache(q, full);
-      setSt('完成 · ' + (TYPES[q.type] || '') + ' · ' + text.length + '字' + (memoState === 'saved' ? ' · 已记住位置' : ''));
+      var mark = splitAns(full).t;
+      var tLabel = /多/.test(mark) ? '多选' : (/单/.test(mark) ? '单选' : (TYPES[q.type] || ''));
+      setSt('完成 · ' + tLabel + ' · ' + text.length + '字' + (memoState === 'saved' ? ' · 已记住位置' : ''));
     } catch (err) {
       var msg = (err && err.message) || String(err);
       if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
