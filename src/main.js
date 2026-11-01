@@ -199,13 +199,13 @@
       for (var d = 0; el && d < 9; d++, el = el.parentElement) {
         if (isEditor(el)) continue;
         var t = el.innerText || '';
-        if (t.length < 12 || t.length > 3000) continue;
+        if (t.length < 6 || t.length > 3000) continue;
         var s = score(t);
         if (s > bestScore) { bestScore = s; best = t; }
         if (s >= 6 && t.length < 900) break;
       }
     }
-    return bestScore >= 3 ? best : '';
+    return bestScore >= 2 ? best : '';
   }
 
   function collectDocs() {
@@ -229,7 +229,7 @@
       if (!doc.body) continue;
       if (k > 0) {
         var bt = doc.body.innerText || '';
-        if (bt.length >= 12 && bt.length <= 3000) {
+        if (bt.length >= 6 && bt.length <= 3000) {
           var bs = score(bt);
           if (bs > bestScore) { bestScore = bs; best = bt; }
         }
@@ -241,7 +241,7 @@
         if (isEditor(el)) continue;
         if (el.scrollHeight > 1000 || el.scrollWidth > 1400) continue;
         var t = el.innerText || '';
-        if (t.length < 12 || t.length > 3000) continue;
+        if (t.length < 6 || t.length > 3000) continue;
         var s = score(t);
         if (s > bestScore) { bestScore = s; best = t; }
       }
@@ -272,7 +272,7 @@
       var el = document.querySelector(p);
       if (!el) return '';
       var t = el.innerText || '';
-      if (t.length >= 12 && t.length <= 4000) { memoState = 'used'; return t; }
+      if (t.length >= 4 && t.length <= 4000) { memoState = 'used'; return t; }
     } catch (e) {}
     return '';
   }
@@ -282,7 +282,7 @@
     var el = node.nodeType === 1 ? node : node.parentElement;
     for (var i = 0; i < 5 && el; i++, el = el.parentElement) {
       var t = el.innerText || '';
-      if (t.length >= 12 && t.length <= 3000 && score(t) >= 2) break;
+      if (t.length >= 6 && t.length <= 3000 && score(t) >= 2) break;
     }
     if (!el || el === document.body || el === document.documentElement) return;
     try { localStorage.setItem(selKey(), cssPath(el)); memoState = 'saved'; } catch (e) {}
@@ -296,7 +296,7 @@
       sel = String(s || '').trim();
       if (s && s.rangeCount) range = s.getRangeAt(0);
     } catch (e) {}
-    if (sel.length >= 8 && sel.length <= 3000) {
+    if (sel.length >= 5 && sel.length <= 3000) {
       if (range) { try { rememberSelection(range); } catch (e) {} }
       return sel;
     }
@@ -417,10 +417,12 @@
         '3. 不要写“作为AI”之类的开场白。';
     }
 
-    if (q.type === 'fill') {
+    if (q.type === 'fill' || q.type === 'judge') {
       return head + '\n要求：\n' +
-        '1. 严格按格式输出：\n【答案】只给要填的内容，多个空用 | 分隔\n【解析】不超过80字\n【置信度】高/中/低\n' +
-        '2. 不要输出推理过程。';
+        '1. 先判断本题是判断题还是填空题。\n' +
+        '2. 判断题：答案只写“正确”或“错误”。\n' +
+        '3. 填空题：答案只给要填入的内容，多个空用 | 分隔。\n' +
+        '4. 严格按格式输出，不要输出推理过程：\n【答案】...\n【解析】不超过80字\n【置信度】高/中/低';
     }
 
     return head + '\n要求：\n' +
@@ -515,6 +517,7 @@ function answerLetters(a) {
           elAns.textContent = s.a;
           elAns.classList.add('txt');
           elCard.classList.add('long');
+          if (/^(正确|错误|对|错|是|否|√|×)/.test(s.a)) elChip.textContent = '判断';
         }
       } else if (raw) {
         elAns.textContent = '生成中';
