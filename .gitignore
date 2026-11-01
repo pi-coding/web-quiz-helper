@@ -6,3 +6,4 @@ Thumbs.db
 # 仅本地开发使用，不随仓库发布
 test/
 preview*.html
+Snipaste_*.png
