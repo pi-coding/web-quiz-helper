@@ -345,10 +345,15 @@
 
   function parse(text) {
     var lines = text.split('\n').map(function (s) { return s.replace(/\s+$/, ''); });
-    var segs = [], cur = null, i, m, k;
+    var segs = [], cur = null, i, m, k, raw;
     for (i = 0; i < lines.length; i++) {
-      m = lines[i].trim().match(OPT);
-      if (!m) { if (cur) { segs.push(cur); cur = null; } continue; }
+      raw = lines[i].trim();
+      m = raw.match(OPT);
+      if (!m) {
+        if (cur && raw.length <= 2) continue;
+        if (cur) { segs.push(cur); cur = null; }
+        continue;
+      }
       k = normKey(m[1]);
       if (k === 'A') {
         if (cur) segs.push(cur);
@@ -441,10 +446,11 @@
       '1. 先判断本题是单选还是多选：题干出现“多选/不定项/选出所有/全部/至少两项”，或选项内容明显需要多个答案时，按多选作答。\n' +
       '2. 先在内部逐步推理，正文不要输出推理过程。\n' +
       '3. 严格按以下格式输出，不要任何前后缀：\n' +
+      '【题型】单选 或 多选\n' +
       '【答案】B\n' +
       '【解析】不超过120字，说明为什么选它、为什么排除其他。\n' +
       '【置信度】高/中/低\n' +
-      '4. 多选必须给全所有正确项，不能漏项，写成 ABD（字母升序，无分隔符）；单选只给一个字母。\n' +
+      '4. 多选题通常有 2 个及以上正确项：给出全部正确项、不得漏选，写成 ABD（字母升序，无分隔符）；若你只找到一个正确项，请复核其余选项再决定。单选只给一个字母。\n' +
       '5. 信息不全或不确定时，答案写“不确定”，置信度写“低”。';
   }
 
@@ -452,7 +458,8 @@
     var a = /【答案】([\s\S]*?)(?=【解析】|【思路】|【置信度】|$)/.exec(s);
     var e = /【(?:解析|思路)】([\s\S]*?)(?=【置信度】|【答案】|$)/.exec(s);
     var c = /【置信度】\s*([^\n【]*)/.exec(s);
-    return { a: a ? a[1].trim() : '', e: e ? e[1].trim() : '', c: c ? c[1].trim() : '' };
+    var ty = /【题型】\s*([^\n【]*)/.exec(s);
+    return { a: a ? a[1].trim() : '', e: e ? e[1].trim() : '', c: c ? c[1].trim() : '', t: ty ? ty[1].trim() : '' };
   }
 
 function answerLetters(a) {
@@ -544,6 +551,9 @@ function answerLetters(a) {
     elCf.className = 'cf' + (/高/.test(s.c) ? ' hi' : /低/.test(s.c) ? ' low' : /中/.test(s.c) ? ' mid' : '');
     elCf.textContent = s.c ? '置信度 ' + s.c : '';
 
+    if (!isCode && s.t && q && q.options.length) {
+      elChip.textContent = /多/.test(s.t) ? '多选' : '单选';
+    }
     renderOpts(q, letters);
     elEx.textContent = s.e || '';
   }
