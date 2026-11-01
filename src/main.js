@@ -94,6 +94,7 @@
     '.sec.fold .ex{display:none}',
     '.ex:empty{display:none}',
     '.sec.dbg h4{color:#b9c0c9}',
+    '.sec.dbg h4 button{margin-left:auto;font-size:10px;padding:1px 7px;border-radius:5px;line-height:1.5}',
     '.sec.dbg .ex{color:#9aa3af;font-size:11.5px;line-height:1.62;max-height:150px}',
     '.ft{display:flex;gap:6px;padding:9px 12px;border-top:1px solid #f0f2f5;background:#fcfdfe}',
     '.ft button{flex:1}',
@@ -117,7 +118,7 @@
     '    <div class="opts"></div>',
     '    <div class="code"><div class="chd"><span class="ct">代码</span><button class="ccp">复制</button></div><pre></pre></div>',
     '    <div class="sec"><h4>解析</h4><div class="ex"></div></div>',
-    '    <div class="sec dbg fold"><h4>抓取内容</h4><div class="ex dbgtext"></div></div>',
+    '    <div class="sec dbg fold"><h4>抓取内容<button class="dcp">复制</button></h4><div class="ex dbgtext"></div></div>',
     '  </div>',
     '  <div class="ft"><button class="re">重新抓题</button><button class="cp">复制</button><button class="op">设置</button></div>',
     '</div>'
@@ -130,7 +131,7 @@
   var elEx = $('.ex'), elSecH = $('.sec h4');
   var elDbg = $('.dbg'), elDbgText = $('.dbgtext');
   var elCg = $('.cg'), elBase = $('.i-base'), elModel = $('.i-model'), elKey = $('.i-key');
-  var busy = false, curQ = null, curRaw = '';
+  var busy = false, curQ = null, curRaw = '', lastText = '';
 
   function setSt(t) { elSt.textContent = t; elSt.title = t; }
 
@@ -162,6 +163,12 @@
     if (/^\s*\d+\s*[.、．]\s*\S/.test(t)) s += 1;
 
     if (/撤销\s*重做|文件\s+编辑\s+视图|字号.*段落.*对齐/.test(t)) s -= 8;
+
+    var noise = 0;
+    for (var j = 0; j < Math.min(ls.length, 14); j++) if (UI_LINE.test(ls[j])) noise++;
+    if (noise) s -= noise * 2;
+
+    s -= Math.floor(t.length / 300);
     return s;
   }
 
@@ -193,7 +200,7 @@
         if (t.length < 12 || t.length > 3000) continue;
         var s = score(t);
         if (s > bestScore) { bestScore = s; best = t; }
-        if (bestScore >= 9 && t.length < 1200) break;
+        if (s >= 6 && t.length < 900) break;
       }
     }
     return bestScore >= 3 ? best : '';
@@ -569,6 +576,7 @@
     }
 
     elDbgText.textContent = text.slice(0, 900) + (text.length > 900 ? '\n…（全文 ' + text.length + ' 字）' : '');
+    lastText = text;
 
     var q = parse(text);
     if (q.type === 'code') {
@@ -663,9 +671,15 @@
 
   $('.dbg h4').addEventListener('click', function () { elDbg.classList.toggle('fold'); });
 
+  $('.dcp').addEventListener('click', function (e) {
+    e.stopPropagation();
+    copyText(lastText || '（未抓到内容）', '已复制抓取内容');
+  });
+
   $('.ccp').addEventListener('click', function () { copyText(elPre.textContent, '代码已复制'); });
 
   $('.cp').addEventListener('click', function () {
+    if (!curRaw) { copyText(lastText || '（未抓到内容）', '已复制抓取内容'); return; }
     var s = splitAns(curRaw);
     var txt = '【答案】' + (s.a || elAns.textContent) + '\n' +
       (s.e ? '【解析】' + s.e + '\n' : '') +
