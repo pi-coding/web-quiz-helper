@@ -93,6 +93,8 @@
     '.ex{white-space:pre-wrap;word-break:break-word;color:#374151;font-size:12.5px;line-height:1.74;max-height:200px;overflow:auto}',
     '.sec.fold .ex{display:none}',
     '.ex:empty{display:none}',
+    '.sec.dbg h4{color:#b9c0c9}',
+    '.sec.dbg .ex{color:#9aa3af;font-size:11.5px;line-height:1.62;max-height:150px}',
     '.ft{display:flex;gap:6px;padding:9px 12px;border-top:1px solid #f0f2f5;background:#fcfdfe}',
     '.ft button{flex:1}',
     '.mini .bd,.mini .ft,.mini .cg{display:none}',
@@ -115,6 +117,7 @@
     '    <div class="opts"></div>',
     '    <div class="code"><div class="chd"><span class="ct">代码</span><button class="ccp">复制</button></div><pre></pre></div>',
     '    <div class="sec"><h4>解析</h4><div class="ex"></div></div>',
+    '    <div class="sec dbg fold"><h4>抓取内容</h4><div class="ex dbgtext"></div></div>',
     '  </div>',
     '  <div class="ft"><button class="re">重新抓题</button><button class="cp">复制</button><button class="op">设置</button></div>',
     '</div>'
@@ -125,6 +128,7 @@
   var elCard = $('.card'), elAns = $('.ans'), elCf = $('.cf'), elOpts = $('.opts');
   var elCode = $('.code'), elPre = elCode.querySelector('pre'), elCT = $('.ct');
   var elEx = $('.ex'), elSecH = $('.sec h4');
+  var elDbg = $('.dbg'), elDbgText = $('.dbgtext');
   var elCg = $('.cg'), elBase = $('.i-base'), elModel = $('.i-model'), elKey = $('.i-key');
   var busy = false, curQ = null, curRaw = '';
 
@@ -195,18 +199,43 @@
     return bestScore >= 3 ? best : '';
   }
 
-  function fromPage() {
-    var nodes = document.querySelectorAll('div,li,td,section,article,form');
+  function collectDocs() {
+    var docs = [document];
+    var frames = document.querySelectorAll('iframe, frame');
+    var n = Math.min(frames.length, 12);
+    for (var i = 0; i < n; i++) {
+      try {
+        var fd = frames[i].contentDocument;
+        if (fd && fd.body && docs.indexOf(fd) < 0) docs.push(fd);
+      } catch (e) {}
+    }
+    return docs;
+  }
+
+  function fromDocs() {
+    var docs = collectDocs();
     var best = '', bestScore = 0;
-    var limit = Math.min(nodes.length, 1600);
-    for (var i = 0; i < limit; i++) {
-      var el = nodes[i];
-      if (isEditor(el)) continue;
-      if (el.scrollHeight > 1000 || el.scrollWidth > 1400) continue;
-      var t = el.innerText || '';
-      if (t.length < 12 || t.length > 3000) continue;
-      var s = score(t);
-      if (s > bestScore) { bestScore = s; best = t; }
+    for (var k = 0; k < docs.length; k++) {
+      var doc = docs[k];
+      if (!doc.body) continue;
+      if (k > 0) {
+        var bt = doc.body.innerText || '';
+        if (bt.length >= 12 && bt.length <= 3000) {
+          var bs = score(bt);
+          if (bs > bestScore) { bestScore = bs; best = bt; }
+        }
+      }
+      var nodes = doc.querySelectorAll('div,li,td,section,article,form,p');
+      var limit = Math.min(nodes.length, 1200);
+      for (var i = 0; i < limit; i++) {
+        var el = nodes[i];
+        if (isEditor(el)) continue;
+        if (el.scrollHeight > 1000 || el.scrollWidth > 1400) continue;
+        var t = el.innerText || '';
+        if (t.length < 12 || t.length > 3000) continue;
+        var s = score(t);
+        if (s > bestScore) { bestScore = s; best = t; }
+      }
     }
     return bestScore >= 3 ? best : '';
   }
@@ -215,18 +244,21 @@
     var sel = '';
     try { sel = String(window.getSelection() || '').trim(); } catch (e) {}
     if (sel.length >= 8 && sel.length <= 3000) return sel;
-    var t = fromViewport() || fromPage();
+    var t = fromViewport() || fromDocs();
     return t ? clean(t) : '';
   }
 
   function readEditor() {
-    var sels = ['textarea', '[contenteditable="true"]', '.monaco-editor', '.CodeMirror-code', '.ace_editor'];
-    for (var i = 0; i < sels.length; i++) {
-      var el = document.querySelector(sels[i]);
-      if (!el) continue;
-      var v = el.tagName === 'TEXTAREA' ? el.value : (el.innerText || '');
-      v = String(v || '').trim();
-      if (v.length >= 10 && v.length <= 4000) return v;
+    var docs = collectDocs();
+    var sels = ['textarea', '[contenteditable="true"]', '.monaco-editor', '.CodeMirror-code', '.ace_editor', '.cm-content'];
+    for (var k = 0; k < docs.length; k++) {
+      for (var i = 0; i < sels.length; i++) {
+        var el = docs[k].querySelector(sels[i]);
+        if (!el) continue;
+        var v = el.tagName === 'TEXTAREA' ? el.value : (el.innerText || '');
+        v = String(v || '').trim();
+        if (v.length >= 10 && v.length <= 4000) return v;
+      }
     }
     return '';
   }
@@ -526,6 +558,8 @@
     var text = extract();
     if (!text || text.length < 8) {
       setSt('没找到题目');
+      elDbg.classList.remove('fold');
+      elDbgText.textContent = '（未从页面抓到任何文本）\n可能原因：题目在跨域 iframe 内、内容尚未渲染、或作答区被误判。\n对策：手动选中题干后再点书签。';
       if (!cached) {
         elQ.textContent = '';
         clearView();
@@ -533,6 +567,8 @@
       }
       return;
     }
+
+    elDbgText.textContent = text.slice(0, 900) + (text.length > 900 ? '\n…（全文 ' + text.length + ' 字）' : '');
 
     var q = parse(text);
     if (q.type === 'code') {
@@ -562,7 +598,7 @@
       var full = await ask(cfg, buildPrompt(q), maxTokens);
       paint(q, full);
       saveCache(q, full);
-      setSt('完成');
+      setSt('完成 · ' + (TYPES[q.type] || '') + ' · ' + text.length + '字');
     } catch (err) {
       var msg = (err && err.message) || String(err);
       if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
@@ -571,6 +607,7 @@
       else if (/HTTP 429/.test(msg)) msg = '触发限流，稍等片刻或更换模型。';
       else if (/HTTP 404/.test(msg)) msg = '接口地址或模型名不对，检查「设置」。';
       setSt('失败');
+      elDbg.classList.remove('fold');
       elAns.classList.remove('wait');
       elAns.textContent = '—';
       elAns.classList.remove('txt');
@@ -623,6 +660,8 @@
   });
 
   $('.sec h4').addEventListener('click', function () { $('.sec').classList.toggle('fold'); });
+
+  $('.dbg h4').addEventListener('click', function () { elDbg.classList.toggle('fold'); });
 
   $('.ccp').addEventListener('click', function () { copyText(elPre.textContent, '代码已复制'); });
 
