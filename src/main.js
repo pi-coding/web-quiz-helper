@@ -5,6 +5,7 @@
   var LSK = '__qab_cfg__';
   var CK = '__qab_cache__';
   var PK = '__qab_pos__';
+  var SELKEY = '__qab_sel__';
   var DEFAULTS = { base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', key: '' };
   var TYPES = { single: '单选', multi: '多选', judge: '判断', fill: '填空', short: '简答', code: '编程' };
   var EMBED = (typeof __QAB_EMBED__ === 'undefined') ? null : __QAB_EMBED__;
@@ -109,8 +110,8 @@
     '    <input class="i-base" placeholder="接口地址，如 https://api.deepseek.com/v1">',
     '    <input class="i-model" placeholder="模型，如 deepseek-chat">',
     '    <input class="i-key" type="password" placeholder="API Key（仅存本机浏览器）">',
-    '    <div class="row"><button class="save">保存并作答</button><button class="del">清除</button></div>',
-    '    <div class="hint">Key 存在本站 localStorage，同站页面脚本理论上可读取。</div>',
+    '    <div class="row"><button class="save">保存并作答</button><button class="del">清除</button><button class="forget">忘记位置</button></div>',
+    '    <div class="hint">选中题干后再点书签，会记住该位置，以后自动按它抓取。Key 存在本站 localStorage。</div>',
     '  </div>',
     '  <div class="bd">',
     '    <div class="q"></div>',
@@ -131,7 +132,7 @@
   var elEx = $('.ex'), elSecH = $('.sec h4');
   var elDbg = $('.dbg'), elDbgText = $('.dbgtext');
   var elCg = $('.cg'), elBase = $('.i-base'), elModel = $('.i-model'), elKey = $('.i-key');
-  var busy = false, curQ = null, curRaw = '', lastText = '';
+  var busy = false, curQ = null, curRaw = '', lastText = '', memoState = '';
 
   function setSt(t) { elSt.textContent = t; elSt.title = t; }
 
@@ -247,10 +248,59 @@
     return bestScore >= 3 ? best : '';
   }
 
+  function cssPath(el) {
+    var parts = [], n = el;
+    for (var i = 0; n && n.nodeType === 1 && n !== document.documentElement && i < 7; i++) {
+      var idx = 1, sib = n;
+      while ((sib = sib.previousElementSibling)) idx++;
+      parts.unshift(n.tagName.toLowerCase() + ':nth-child(' + idx + ')');
+      n = n.parentElement;
+    }
+    return parts.length ? 'html > ' + parts.join(' > ') : '';
+  }
+
+  function selKey() {
+    return SELKEY + ':' + (location.hostname || 'local');
+  }
+
+  function fromRemembered() {
+    var p = '';
+    try { p = localStorage.getItem(selKey()) || ''; } catch (e) { return ''; }
+    if (!p) return '';
+    try {
+      var el = document.querySelector(p);
+      if (!el) return '';
+      var t = el.innerText || '';
+      if (t.length >= 12 && t.length <= 4000) { memoState = 'used'; return t; }
+    } catch (e) {}
+    return '';
+  }
+
+  function rememberSelection(range) {
+    var node = range.commonAncestorContainer;
+    var el = node.nodeType === 1 ? node : node.parentElement;
+    for (var i = 0; i < 5 && el; i++, el = el.parentElement) {
+      var t = el.innerText || '';
+      if (t.length >= 12 && t.length <= 3000 && score(t) >= 2) break;
+    }
+    if (!el || el === document.body || el === document.documentElement) return;
+    try { localStorage.setItem(selKey(), cssPath(el)); memoState = 'saved'; } catch (e) {}
+  }
+
   function extract() {
-    var sel = '';
-    try { sel = String(window.getSelection() || '').trim(); } catch (e) {}
-    if (sel.length >= 8 && sel.length <= 3000) return sel;
+    memoState = '';
+    var sel = '', range = null;
+    try {
+      var s = window.getSelection();
+      sel = String(s || '').trim();
+      if (s && s.rangeCount) range = s.getRangeAt(0);
+    } catch (e) {}
+    if (sel.length >= 8 && sel.length <= 3000) {
+      if (range) { try { rememberSelection(range); } catch (e) {} }
+      return sel;
+    }
+    var memo = fromRemembered();
+    if (memo) return clean(memo);
     var t = fromViewport() || fromDocs();
     return t ? clean(t) : '';
   }
@@ -606,7 +656,7 @@
       var full = await ask(cfg, buildPrompt(q), maxTokens);
       paint(q, full);
       saveCache(q, full);
-      setSt('完成 · ' + (TYPES[q.type] || '') + ' · ' + text.length + '字');
+      setSt('完成 · ' + (TYPES[q.type] || '') + ' · ' + text.length + '字' + (memoState === 'saved' ? ' · 已记住位置' : ''));
     } catch (err) {
       var msg = (err && err.message) || String(err);
       if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
@@ -660,6 +710,12 @@
     try { localStorage.removeItem(LSK); localStorage.removeItem(CK); } catch (e) {}
     elKey.value = '';
     setSt('已清除');
+  });
+
+  $('.forget').addEventListener('click', function () {
+    try { localStorage.removeItem(selKey()); } catch (e) {}
+    memoState = '';
+    setSt('已忘记抓取位置');
   });
 
   $('.re').addEventListener('click', function () {
