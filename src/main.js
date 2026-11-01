@@ -62,6 +62,12 @@
     '.cg .row{display:flex;gap:6px}',
     '.cg .row button{flex:1}',
     '.hint{font-size:11px;color:#9aa3af;line-height:1.55}',
+    '.ma{display:none;flex-direction:column;gap:7px;padding:10px 12px;background:#fafbfc;border-bottom:1px solid #eef1f4}',
+    '.ma.on{display:flex}',
+    '.ma textarea{width:100%;box-sizing:border-box;min-height:120px;padding:8px 10px;border:1px solid #d8dde3;border-radius:8px;font:12.5px/1.62 inherit;resize:vertical;color:#111827}',
+    '.ma textarea:focus{outline:2px solid #c7d2fe;border-color:#a5b4fc}',
+    '.ma .row{display:flex;gap:6px}',
+    '.ma .row button{flex:1}',
     '.bd{padding:11px 12px;overflow:auto}',
     '.q{font-size:12px;line-height:1.62;color:#6b7280;padding:8px 10px;background:#f8fafb;border-radius:9px;margin-bottom:9px;white-space:pre-wrap;word-break:break-word;max-height:72px;overflow:auto}',
     '.q:empty{display:none}',
@@ -114,6 +120,10 @@
     '    <div class="row"><button class="save">保存并作答</button><button class="del">清除</button><button class="forget">忘记位置</button></div>',
     '    <div class="hint">选中题干后再点书签，会记住该位置，以后自动按它抓取。Key 存在本站 localStorage。</div>',
     '  </div>',
+    '  <div class="ma">',
+    '    <textarea class="mta" placeholder="把题目（含选项）粘贴到这里，支持选择题 / 简答 / 编程题全文"></textarea>',
+    '    <div class="row"><button class="mgo">作答</button><button class="mcl">收起</button></div>',
+    '  </div>',
     '  <div class="bd">',
     '    <div class="q"></div>',
     '    <div class="card"><span class="ans wait">…</span><span class="cf"></span></div>',
@@ -122,7 +132,7 @@
     '    <div class="sec"><h4>解析</h4><div class="ex"></div></div>',
     '    <div class="sec dbg fold"><h4>抓取内容<button class="dcp">复制</button></h4><div class="ex dbgtext"></div></div>',
     '  </div>',
-    '  <div class="ft"><button class="re">重新抓题</button><button class="cp">复制</button><button class="op">设置</button></div>',
+    '  <div class="ft"><button class="re">重抓</button><button class="mb">贴题</button><button class="cp">复制</button><button class="op">设置</button></div>',
     '</div>'
   ].join('');
 
@@ -282,7 +292,7 @@
     var el = node.nodeType === 1 ? node : node.parentElement;
     for (var i = 0; i < 5 && el; i++, el = el.parentElement) {
       var t = el.innerText || '';
-      if (t.length >= 6 && t.length <= 3000 && score(t) >= 2) break;
+      if (t.length >= 6 && t.length <= 3000 && score(t) >= 1) break;
     }
     if (!el || el === document.body || el === document.documentElement) return;
     try { localStorage.setItem(selKey(), cssPath(el)); memoState = 'saved'; } catch (e) {}
@@ -610,6 +620,16 @@ function answerLetters(a) {
     elCard.classList.remove('hide', 'long');
   }
 
+  function diagText() {
+    var body = document.body ? (document.body.innerText || '') : '';
+    var frames = document.querySelectorAll('iframe, frame');
+    var cross = 0;
+    for (var i = 0; i < frames.length; i++) {
+      try { void frames[i].contentDocument; } catch (e) { cross++; }
+    }
+    return '页面文本 ' + body.length + ' 字 · iframe ' + frames.length + ' 个（跨域 ' + cross + ' 个）';
+  }
+
   async function run() {
     if (busy) return;
     var cfg = getCfg();
@@ -623,14 +643,18 @@ function answerLetters(a) {
     if (cached) paint(cached.q, cached.a);
 
     var text = extract();
-    if (!text || text.length < 8) {
+    if (!text || text.length < 4) {
       setSt('没找到题目');
       elDbg.classList.remove('fold');
-      elDbgText.textContent = '（未从页面抓到任何文本）\n可能原因：题目在跨域 iframe 内、内容尚未渲染、或作答区被误判。\n对策：手动选中题干后再点书签。';
+      elDbgText.textContent = '（未从页面抓到题目）\n' + diagText() + '\n\n' +
+        '自救办法（按顺序试）：\n' +
+        '1. 用鼠标选中题干，再点一次书签（最可靠）\n' +
+        '2. 点下方「贴题」，把题目复制进去直接作答\n' +
+        '3. 若题目在跨域 iframe 里：右键题目区域 →「在此框架中打开/在新标签页打开框架」，再到新标签页里点书签';
       if (!cached) {
         elQ.textContent = '';
         clearView();
-        elEx.textContent = '未识别到题目。请手动选中题干后再次点击书签，或滚动到题目位置再试。';
+        elEx.textContent = '未识别到题目。选中题干后点书签，或点「贴题」手动粘贴题目。';
       }
       return;
     }
@@ -639,15 +663,20 @@ function answerLetters(a) {
     lastText = text;
 
     var q = parse(text);
-    if (q.type === 'code') {
-      q.code = readEditor();
-      q.lang = detectLang();
-    }
-
     if (cached && cached.h === stemKey(q) && cached.a) {
+      if (q.type === 'code') { q.code = readEditor(); q.lang = detectLang(); }
       paint(q, cached.a);
       setSt('已恢复上次结果');
       return;
+    }
+    await solve(cfg, text);
+  }
+
+  async function solve(cfg, text) {
+    var q = parse(text);
+    if (q.type === 'code') {
+      q.code = readEditor();
+      q.lang = detectLang();
     }
 
     paint(q, '');
@@ -731,6 +760,25 @@ function answerLetters(a) {
   $('.re').addEventListener('click', function () {
     try { localStorage.removeItem(CK); } catch (e) {}
     run();
+  });
+
+  var elMa = $('.ma'), elMta = $('.mta');
+  $('.mb').addEventListener('click', function () {
+    elMa.classList.toggle('on');
+    if (elMa.classList.contains('on')) elMta.focus();
+  });
+  $('.mcl').addEventListener('click', function () { elMa.classList.remove('on'); });
+  $('.mgo').addEventListener('click', function () {
+    var t = elMta.value.trim();
+    if (t.length < 4) { setSt('题目太短'); return; }
+    if (busy) { setSt('正在作答中'); return; }
+    var cfg = getCfg();
+    if (!cfg.key) { setSt('请先填 Key'); openCfg(); return; }
+    elMa.classList.remove('on');
+    lastText = t;
+    elDbgText.textContent = '（手动粘贴 · ' + t.length + ' 字）\n' + t.slice(0, 900) + (t.length > 900 ? '\n…' : '');
+    try { localStorage.removeItem(CK); } catch (e) {}
+    solve(cfg, t);
   });
 
   $('.sec h4').addEventListener('click', function () { $('.sec').classList.toggle('fold'); });
