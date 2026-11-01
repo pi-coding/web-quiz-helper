@@ -13,6 +13,7 @@
 
   var OPT = /^[（(【\[]?\s*([A-Ha-hＡ-Ｈａ-ｈ])\s*[）)】\]．.、:：]\s*(.+)$/;
   var UI_LINE = /^(返回|上一题|下一题|上一道题|下一道题|前一道题|后一道题|题目列表.*|提交|提交答案|交卷|字体大小.*|切换编辑器主题.*|草稿箱|本地草稿箱|控制台|编辑器|提交状态|未提交答案|已提交|保存|全屏|收起|展开)$/;
+  var SHORT_HINTS = /试述|简述|论述|阐述|列举|说明|为什么|如何|分析|区别|比较|谈谈|作用|意义|过程|机制|原理|什么是|是什么|有哪些|包括哪些|指出|解释|描述|写出|含义|定义|特点|优缺点|计算/;
 
   function normKey(c) {
     return c.replace(/[Ａ-Ｈａ-ｈ]/g, function (x) {
@@ -168,11 +169,11 @@
 
     if (/【问题描述】|【题目描述】|问题描述|题目描述/.test(t)) s += 4;
     if (/【样例|样例输入|样例输出|评分标准|输入描述|输出描述/.test(t)) s += 3;
-    if (/试述|简述|论述|阐述|列举|请说明|为什么|如何理解|有何区别|分析其/.test(t)) s += 3;
+    if (SHORT_HINTS.test(t)) s += 3;
     if (/请编写|实现一个|编写一个|补全代码|主类名|class\s+\w+\s*\{|public\s+static\s+void\s+main/.test(t)) s += 3;
 
     if (/[?？]\s*$/.test(t.trim())) s += 1;
-    if (/^\s*\d+\s*[.、．]\s*\S/.test(t)) s += 1;
+    if (/^\s*\d+\s*[.、．]\s*\S/.test(t)) s += 2;
 
     if (/撤销\s*重做|文件\s+编辑\s+视图|字号.*段落.*对齐/.test(t)) s -= 8;
 
@@ -199,7 +200,7 @@
 
   function fromViewport() {
     var pts = [
-      [0.22, 0.42], [0.28, 0.58], [0.3, 0.5],
+      [0.15, 0.5], [0.22, 0.42], [0.28, 0.58], [0.3, 0.5],
       [0.5, 0.45], [0.5, 0.6], [0.5, 0.5],
       [0.5, 0.3], [0.5, 0.7], [0.34, 0.5], [0.66, 0.5]
     ];
@@ -208,6 +209,7 @@
       var el = document.elementFromPoint(window.innerWidth * pts[p][0], window.innerHeight * pts[p][1]);
       for (var d = 0; el && d < 9; d++, el = el.parentElement) {
         if (isEditor(el)) continue;
+        if (d > 0 && el.scrollHeight > window.innerHeight * 0.75) break;
         var t = el.innerText || '';
         if (t.length < 6 || t.length > 3000) continue;
         var s = score(t);
@@ -387,7 +389,7 @@
       t = 'code';
     } else if (/(判断|正确|错误|对错)/.test(all) && all.length < 90) {
       t = 'judge';
-    } else if (/试述|简述|论述|阐述|列举|说明|为什么|如何|分析|区别|比较|谈谈|作用|意义|过程|机制|原理/.test(all) && all.length > 24) {
+    } else if (SHORT_HINTS.test(all) && all.length > 12) {
       t = 'short';
     } else if (/_{3,}|（\s*）|\(\s*\)/.test(all) && all.length < 160) {
       t = 'fill';
