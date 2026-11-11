@@ -14,6 +14,7 @@
   var OPT = /^[（(【\[]?\s*([A-Ha-hＡ-Ｈａ-ｈ])\s*[）)】\]．.、:：]\s*(.+)$/;
   var UI_LINE = /^(返回|上一题|下一题|上一道题|下一道题|前一道题|后一道题|题目列表.*|提交|提交答案|交卷|字体大小.*|切换编辑器主题.*|草稿箱|本地草稿箱|控制台|编辑器|提交状态|未提交答案|已提交|保存|全屏|收起|展开)$/;
   var SHORT_HINTS = /试述|简述|论述|阐述|列举|说明|为什么|如何|分析|区别|比较|谈谈|作用|意义|过程|机制|原理|什么是|是什么|有哪些|包括哪些|指出|解释|描述|写出|含义|定义|特点|优缺点|计算/;
+  var QNUM = /^\s*(?:\d{1,3}\s*[.、．]|[（(]\s*\d{1,3}\s*[）)]|[一二三四五六七八九十]+、)\s*\S/;
 
   function normKey(c) {
     return c.replace(/[Ａ-Ｈａ-ｈ]/g, function (x) {
@@ -22,7 +23,7 @@
   }
 
   if (typeof document === 'undefined') {
-    module.exports = { parse: parse, score: score, buildPrompt: buildPrompt, splitAns: splitAns, answerLetters: answerLetters, extractCode: extractCode, clean: clean };
+    module.exports = { parse: parse, score: score, buildPrompt: buildPrompt, splitAns: splitAns, answerLetters: answerLetters, extractCode: extractCode, clean: clean, splitMulti: splitMulti };
     return;
   }
 
@@ -133,7 +134,7 @@
     '    <div class="sec"><h4>解析</h4><div class="ex"></div></div>',
     '    <div class="sec dbg fold"><h4>抓取内容<button class="dcp">复制</button></h4><div class="ex dbgtext"></div></div>',
     '  </div>',
-    '  <div class="ft"><button class="re">重抓</button><button class="mb">贴题</button><button class="cp">复制</button><button class="op">设置</button></div>',
+    '  <div class="ft"><button class="re">重抓</button><button class="alt">换一个</button><button class="mb">贴题</button><button class="cp">复制</button><button class="op">设置</button></div>',
     '</div>'
   ].join('');
 
@@ -145,6 +146,7 @@
   var elDbg = $('.dbg'), elDbgText = $('.dbgtext');
   var elCg = $('.cg'), elBase = $('.i-base'), elModel = $('.i-model'), elKey = $('.i-key');
   var busy = false, curQ = null, curRaw = '', lastText = '', memoState = '';
+  var cands = [], candIdx = 0;
 
   function setSt(t) { elSt.textContent = t; elSt.title = t; }
 
@@ -181,6 +183,10 @@
     for (var j = 0; j < Math.min(ls.length, 14); j++) if (UI_LINE.test(ls[j])) noise++;
     if (noise) s -= noise * 2;
 
+    var nums = 0;
+    for (var q = 0; q < ls.length; q++) if (QNUM.test(ls[q])) nums++;
+    if (nums >= 3) s -= (nums - 2) * 2;
+
     s -= Math.floor(t.length / 300);
     return s;
   }
@@ -189,6 +195,54 @@
     return t.split('\n').map(function (l) { return l.trim(); })
       .filter(function (l) { return l && !UI_LINE.test(l); })
       .join('\n').trim();
+  }
+
+  function pushCand(raw, bonus) {
+    if (cands.length >= 45) return 0;
+    var t = clean(raw);
+    if (!t || t.length < 4 || t.length > 3000) return 0;
+    for (var i = 0; i < cands.length; i++) if (cands[i].t === t) return cands[i].s;
+    var s = score(t) + (bonus || 0);
+    cands.push({ t: t, s: s });
+    return s;
+  }
+
+  function splitMulti(t) {
+    var lines = t.split('\n');
+    var starts = [], i;
+    for (i = 0; i < lines.length; i++) if (QNUM.test(lines[i].trim())) starts.push(i);
+    if (starts.length < 2) return [];
+    var out = [];
+    for (i = 0; i < starts.length; i++) {
+      var end = (i + 1 < starts.length) ? starts[i + 1] : lines.length;
+      var seg = lines.slice(starts[i], end).join('\n').trim();
+      if (seg.length >= 8 && seg.length <= 2000) out.push(seg);
+    }
+    return out;
+  }
+
+  function rankCands() {
+    var extra = [], i, k;
+    for (i = 0; i < cands.length; i++) {
+      var parts = splitMulti(cands[i].t);
+      for (k = 0; k < parts.length; k++) {
+        extra.push({ t: parts[k], s: score(parts[k]) + 2, seg: true });
+      }
+    }
+    cands = cands.concat(extra);
+
+    var seen = {}, uniq = [];
+    for (i = 0; i < cands.length; i++) {
+      if (seen[cands[i].t]) continue;
+      seen[cands[i].t] = 1;
+      uniq.push(cands[i]);
+    }
+    uniq.sort(function (a, b) {
+      if (b.s !== a.s) return b.s - a.s;
+      return (b.seg ? 1 : 0) - (a.seg ? 1 : 0);
+    });
+    cands = uniq.slice(0, 5);
+    if (cands.length && cands[0].s < 2) cands = [];
   }
 
   function isEditor(el) {
@@ -204,20 +258,17 @@
       [0.5, 0.45], [0.5, 0.6], [0.5, 0.5],
       [0.5, 0.3], [0.5, 0.7], [0.34, 0.5], [0.66, 0.5]
     ];
-    var best = '', bestScore = 0;
-    for (var p = 0; p < pts.length; p++) {
+    for (var p = 0; p < pts.length && cands.length < 45; p++) {
       var el = document.elementFromPoint(window.innerWidth * pts[p][0], window.innerHeight * pts[p][1]);
       for (var d = 0; el && d < 9; d++, el = el.parentElement) {
         if (isEditor(el)) continue;
         if (d > 0 && el.scrollHeight > window.innerHeight * 0.75) break;
         var t = el.innerText || '';
         if (t.length < 6 || t.length > 3000) continue;
-        var s = score(t);
-        if (s > bestScore) { bestScore = s; best = t; }
-        if (s >= 6 && t.length < 900) break;
+        var sc = pushCand(t);
+        if (sc >= 6 && t.length < 900) break;
       }
     }
-    return bestScore >= 2 ? best : '';
   }
 
   function collectDocs() {
@@ -235,30 +286,21 @@
 
   function fromDocs() {
     var docs = collectDocs();
-    var best = '', bestScore = 0;
-    for (var k = 0; k < docs.length; k++) {
+    for (var k = 0; k < docs.length && cands.length < 45; k++) {
       var doc = docs[k];
       if (!doc.body) continue;
-      if (k > 0) {
-        var bt = doc.body.innerText || '';
-        if (bt.length >= 6 && bt.length <= 3000) {
-          var bs = score(bt);
-          if (bs > bestScore) { bestScore = bs; best = bt; }
-        }
-      }
+      if (k > 0) pushCand(doc.body.innerText || '');
       var nodes = doc.querySelectorAll('div,li,td,section,article,form,p');
       var limit = Math.min(nodes.length, 1200);
-      for (var i = 0; i < limit; i++) {
+      for (var i = 0; i < limit && cands.length < 45; i++) {
         var el = nodes[i];
         if (isEditor(el)) continue;
         if (el.scrollHeight > 1000 || el.scrollWidth > 1400) continue;
         var t = el.innerText || '';
         if (t.length < 6 || t.length > 3000) continue;
-        var s = score(t);
-        if (s > bestScore) { bestScore = s; best = t; }
+        pushCand(t);
       }
     }
-    return bestScore >= 3 ? best : '';
   }
 
   function cssPath(el) {
@@ -277,15 +319,41 @@
   }
 
   function fromRemembered() {
-    var p = '';
-    try { p = localStorage.getItem(selKey()) || ''; } catch (e) { return ''; }
-    if (!p) return '';
-    try {
-      var el = document.querySelector(p);
-      if (!el) return '';
-      var t = el.innerText || '';
-      if (t.length >= 4 && t.length <= 4000) { memoState = 'used'; return t; }
-    } catch (e) {}
+    var raw = '';
+    try { raw = localStorage.getItem(selKey()) || ''; } catch (e) { return ''; }
+    if (!raw) return '';
+
+    var path = raw, fp = '';
+    if (raw.charAt(0) === '{') {
+      try { var o = JSON.parse(raw); path = o.p || ''; fp = o.f || ''; } catch (e) { path = ''; }
+    }
+
+    if (path) {
+      try {
+        var el = document.querySelector(path);
+        if (el) {
+          var t = el.innerText || '';
+          if (t.length >= 4 && t.length <= 4000) { memoState = 'used'; return t; }
+        }
+      } catch (e) {}
+    }
+
+    if (fp) {
+      var docs = collectDocs();
+      var hit = '', hitLen = 1e9;
+      for (var k = 0; k < docs.length; k++) {
+        var nodes = docs[k].querySelectorAll('div,li,td,section,article,form,p');
+        var limit = Math.min(nodes.length, 1200);
+        for (var i = 0; i < limit; i++) {
+          var t2 = (nodes[i].innerText || '').replace(/\s+/g, '');
+          if (t2.length >= 6 && t2.length <= 4000 && t2.indexOf(fp) >= 0 && t2.length < hitLen) {
+            hit = nodes[i].innerText || '';
+            hitLen = t2.length;
+          }
+        }
+      }
+      if (hit) { memoState = 'finger'; return hit; }
+    }
     return '';
   }
 
@@ -297,11 +365,20 @@
       if (t.length >= 6 && t.length <= 3000 && score(t) >= 1) break;
     }
     if (!el || el === document.body || el === document.documentElement) return;
-    try { localStorage.setItem(selKey(), cssPath(el)); memoState = 'saved'; } catch (e) {}
+    var txt = el.innerText || '';
+    try {
+      localStorage.setItem(selKey(), JSON.stringify({
+        p: cssPath(el),
+        f: txt.replace(/\s+/g, '').slice(0, 30)
+      }));
+      memoState = 'saved';
+    } catch (e) {}
   }
 
   function extract() {
     memoState = '';
+    cands = [];
+    candIdx = 0;
     var sel = '', range = null;
     try {
       var s = window.getSelection();
@@ -310,12 +387,18 @@
     } catch (e) {}
     if (sel.length >= 5 && sel.length <= 3000) {
       if (range) { try { rememberSelection(range); } catch (e) {} }
+      cands = [{ t: sel, s: 99 }];
       return sel;
     }
+
     var memo = fromRemembered();
-    if (memo) return clean(memo);
-    var t = fromViewport() || fromDocs();
-    return t ? clean(t) : '';
+    if (memo) pushCand(memo, 10);
+
+    fromViewport();
+    if (cands.length < 3) fromDocs();
+    rankCands();
+
+    return cands.length ? cands[0].t : '';
   }
 
   function readEditor() {
@@ -678,7 +761,7 @@ function answerLetters(a) {
     if (cached && cached.h === stemKey(q) && cached.a) {
       if (q.type === 'code') { q.code = readEditor(); q.lang = detectLang(); }
       paint(q, cached.a);
-      setSt('已恢复上次结果');
+      setSt('已恢复上次结果' + (cands.length > 1 ? ' · 候选1/' + cands.length : ''));
       return;
     }
     await solve(cfg, text);
@@ -709,7 +792,9 @@ function answerLetters(a) {
       saveCache(q, full);
       var mark = splitAns(full).t;
       var tLabel = /多/.test(mark) ? '多选' : (/单/.test(mark) ? '单选' : (TYPES[q.type] || ''));
-      setSt('完成 · ' + tLabel + ' · ' + text.length + '字' + (memoState === 'saved' ? ' · 已记住位置' : ''));
+      setSt('完成 · ' + tLabel + ' · ' + text.length + '字' +
+        (cands.length > 1 ? ' · 候选1/' + cands.length : '') +
+        (memoState === 'saved' ? ' · 已记住位置' : ''));
     } catch (err) {
       var msg = (err && err.message) || String(err);
       if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
@@ -774,6 +859,21 @@ function answerLetters(a) {
   $('.re').addEventListener('click', function () {
     try { localStorage.removeItem(CK); } catch (e) {}
     run();
+  });
+
+  $('.alt').addEventListener('click', function () {
+    if (busy) { setSt('正在作答中'); return; }
+    if (cands.length < 2) { setSt('没有其它候选'); return; }
+    var cfg2 = getCfg();
+    if (!cfg2.key) { setSt('请先填 Key'); openCfg(); return; }
+    candIdx = (candIdx + 1) % cands.length;
+    var t = cands[candIdx].t;
+    lastText = t;
+    elDbg.classList.remove('fold');
+    elDbgText.textContent = '候选 ' + (candIdx + 1) + '/' + cands.length +
+      '（评分 ' + cands[candIdx].s + '）\n' + t.slice(0, 900);
+    try { localStorage.removeItem(CK); } catch (e) {}
+    solve(cfg2, t);
   });
 
   var elMa = $('.ma'), elMta = $('.mta');
